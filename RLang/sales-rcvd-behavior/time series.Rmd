@@ -1,0 +1,77 @@
+---
+title: "timeSeriesAnalysis"
+author: "Thanakrit Danny"
+date: "2/9/2018"
+output: html_document
+---
+
+```{r load_project, echo = FALSE, message = FALSE}
+rm(list = ls()) # refresh workspace
+library(ProjectTemplate); load.project() # load all cached file
+```             
+
+Find the agent that have app submission every week. Then filter out the consistency agent data.
+```{r find agent consistency submit, echo = FALSE}
+# find consistency submit agent
+oss_rcvd %>% 
+    select(agent_code, no_week_of_year) %>%
+    distinct() %>%
+    group_by(agent_code) %>% 
+    summarise(n = n()) %>%
+    filter(n >= 51) %>% 
+    select(agent_code) -> agent_cont
+
+print(agent_cont)
+
+# filter only consistency submit agent data
+oss_rcvd %>%
+    select(-date) %>% 
+    inner_join(agent_cont) -> agent_cont_rcvd
+```
+
+EDA on 1 sample data
+Create vector of summarized by weekly from 1 sample data
+```{r create time series obj, echo = FALSE}
+# line plot of number app submit by weekly
+agent_cont_rcvd %>%
+    filter(agent_code == "3153008") %>% 
+    group_by(no_week_of_year) %>% 
+    summarise(n = n()) %>% 
+    ggplot(mapping = aes(x = no_week_of_year, y = n, group = 1)) + geom_line()
+
+# Create datedata from one sample data
+agent_cont_rcvd %>%
+    filter(agent_code == "3153008") %>% 
+    group_by(no_week_of_year) %>% 
+    summarise(n = n()) %>% 
+    select(n)-> agent_samp_week
+```
+
+Convert to time-series object.
+Define start point point as first week = *1*, with frequency = 4 (no of week in month)
+```{r sample ts obj, echo = FALSE}
+# convert to time-series
+agent_ts <- ts(agent_samp_week, start = 1, frequency = 4)
+plot(agent_ts)
+
+# trend, seasonal decomposition, try seasonality type 'additive' and 'mulitiplicative' 
+decomp_ts_add <- decompose(agent_ts, type = 'additive')
+decomp_ts_mul <- decompose(agent_ts, type = 'multiplicative')
+
+# use seasonality additive model, EDA on each component
+plot(decomp_ts_add$x)
+plot(decomp_ts_add$seasonal)
+plot(decomp_ts_add$trend)
+plot(decomp_ts_add$random)
+
+# EDA, on all component
+plot(decomp_ts_add)
+
+# trend, seasonal decomposition with stl
+# stl need pure vector data of time series
+agent_ts <- ts(agent_samp_week$n, start = 1, frequency = 4)
+
+stl_ts <- stl(agent_ts, 'periodic')
+plot(stl_ts)
+```
+

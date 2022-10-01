@@ -1,0 +1,69 @@
+---
+title: "survival"
+author: "Thanakrit Danny"
+date: "2/23/2018"
+output: html_document
+---
+
+```{r load_project, echo = FALSE, message = FALSE}
+rm(list = ls()) # refresh workspace
+library(ProjectTemplate); load.project() # load all cached file
+```             
+
+## Create Survival Object from app received data
+
+```{r surv obj, echo = FALSE}
+# transform app submission to survival template
+oss_rcvd %>%
+    select(agent_code, date) %>%
+    group_by(agent_code) %>%
+    summarise(min_date = min(date), max_date = max(date)) %>%
+    left_join(sales) %>%
+    select(agent_code, min_date, max_date, status) %>%
+    filter(status %in% c("N", "W")) %>%
+    mutate(day_final = julian(as.Date("2017-11-30"), 
+                              origin = as.Date("2016-12-31"))) %>% 
+    mutate(day_start = julian(min_date, origin = as.Date("2016-12-31")),
+           day_end = julian(max_date, origin = as.Date("2016-12-31"))) %>% 
+    mutate(fustat = if_else(status == "W", 1, 0)) %>%
+    mutate(day_c = day_final - day_start) %>%
+    mutate(day_t = day_end - day_start) %>% 
+    mutate(futime = pmin(day_t, day_c)) %>%
+    filter(futime > 0) %>%
+    select(futime, fustat) -> df
+
+library(survival)
+S1 <- Surv(df$futime, df$fustat)
+```
+
+## Non parametric estimation KM
+
+```{r non parametric surv, echo = FALSE}
+fit1 <- survfit(S1 ~ 1)
+summary(fit1)
+
+plot(fit1, xlab = "days from first submit",
+     ylab = expression("S(t)"))
+```
+
+Event time have cyclical at every 7 days from first submitting days.
+```{r plot by plot, echo = -1}
+# echo = -1 for ploting followed with annotation
+# Focus on day range [1, 50] 
+plot(fit1$time, fit1$n.event, type = "o", xlim = c(0, 50),
+     xlab = "days", ylab = "# of event")
+abline(v = seq(7, 47, 7), col = "red", lty = 2)
+```
+
+Retention communication strategy at *first time submit + 7**n*
+
+## Parametric 
+```{r parametric surv, echo = FALSE}
+
+fit2 <- survreg(S1 ~ 1, data = df, dist = "exponential")
+summary(fit2)
+
+lambda <- exp(-6.6)
+# mean time to failure
+mttf <- 1/lambda
+```

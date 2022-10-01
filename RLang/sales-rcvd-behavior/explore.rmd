@@ -1,0 +1,351 @@
+---
+output: 
+  html_document:
+    keep_md: true
+---
+
+# Initialize Project
+```{r adjust_directory_if_needed}
+# Uncomment lines below if rmd file is placed in a subdirectory
+# library(knitr)
+# opts_knit$set(root.dir = normalizePath('../')) 
+```
+
+```{r load_project, echo = FALSE, message = FALSE}
+# 1. Set options in config/global.dcf
+# 2. Load packages listed in config/global.dcf
+# 3. Import functions and coe in lib directory
+# 4. Load data in data directory
+# 5. Run data manipulations in munge directory 
+
+rm(list = ls()) # optionally refresh workspaces
+library(ProjectTemplate); load.project()
+```             
+
+# Explore
+## No of app received by # week in year, colored by month
+```{r rcvd by week of year, echo = FALSE}
+library(plotly)
+
+g <- ggplot(data = oss_rcvd,
+       aes(x = no_week_of_year, fill = as.factor(month))) +
+    geom_histogram(stat = "count") +
+    ggtitle(label = "No of app submit by # of week in year, colored by month") +
+    labs(fill = "Month", x = "No of week in year", y = "No app submit")
+ggplotly(g)
+```
+
+## No of app rcvd by # of week in year, colored by source code
+```{r rcvd by source code, echo = FALSE}
+g <- ggplot(data = subset(oss_rcvd, source_code %in% c("OSS", "OGS", "OCS")),
+            aes(x = no_week_of_year, fill = as.factor(source_code))) +
+    geom_histogram(stat = "count", position = "stack") +
+    ggtitle(label = "No of app rcvd by # of week in year, colored by source code") +
+    labs(fill = "Source Code", x = "No of week in year", y = "No of app rcvd") +
+    facet_grid(. ~ as.factor(source_code))
+ggplotly(g)
+```
+
+## Recency by week, number of last submit week and number of the week before last submit (current week = 51)
+```{r recency by week, echo = FALSE}
+# use split, apply and combine to create dataframe of recency
+rcvd_list <- split(oss_rcvd, oss_rcvd$agent_code)
+recency_list <- lapply(rcvd_list, FUN = findRecency)
+recency <- do.call(rbind, recency_list)
+recency$agent_code <- as.integer(rownames(recency))
+rownames(recency) <- NULL
+# clear temp varibles
+rm(list = c("rcvd_list", "recency_list"))
+```
+
+## Some EDA on recency
+```{r recency EDA, echo = FALSE}
+g <- ggplot(data = recency,
+       aes(x = diff_last)) +
+    geom_histogram(breaks = seq(1, 50, 1), fill = I("blue")) +
+    ggtitle(label = "No of agent stop submitting app by # week in year") +
+    labs(x = "No of week diff from week 51", y = "No of agent stop submitting")
+ggplotly(g)
+
+g <- ggplot(data = recency,
+       aes(x = diff_lag1)) +
+    geom_histogram(breaks = seq(1, 50, 1), fill = I("green")) +
+    ggtitle(label = "No of agent stop submitting app by # week last submit") +
+    labs(x = "No of week diff from thier last submit week", y = "No of agent stop submitting")
+ggplotly(g)
+```
+
+## Summary by day of week (Mon = 1 .. Sun = 7)
+## Summary by weekly 
+```{r summary by week, echo = FALSE}
+# Pre summarise dataframe
+summary_by_week <- oss_rcvd %>%
+    dplyr::select(-date) %>%  # exclude data since problems group_by
+    group_by(agent_code, no_week_of_year, day_of_week) %>%
+    summarise(submit = n())
+# rcvd by day by week
+rcvd_day_of_week <- summary_by_week %>%
+    group_by(agent_code, day_of_week) %>%
+    summarise(avg_time_by_day_of_week = n(),
+              avg_submit_by_day_of_week = mean(submit))
+
+# spread from long to wide format
+# time submit by day of week
+time_day_of_week <- rcvd_day_of_week %>%
+    mutate(key_column_name = paste0(day_of_week, "_time")) %>%
+    select(-avg_submit_by_day_of_week, -day_of_week) %>%
+    spread(key = key_column_name, value = avg_time_by_day_of_week,
+           fill = 0)  # fill 0 if no data
+
+# avg submit by day of week
+avg_submit_day_of_week <- rcvd_day_of_week %>%
+    mutate(key_column_name = paste0(day_of_week, "_submit")) %>%
+    select(-avg_time_by_day_of_week, -day_of_week) %>%
+    spread(key = key_column_name, value = avg_submit_by_day_of_week,
+           fill = 0)  # fill 0 if no data
+
+# rcvd by weekly
+rcvd_by_week <- summary_by_week %>%
+    group_by(agent_code, no_week_of_year) %>%
+    summarise(time_by_week = n(), 
+              submit_by_week = sum(submit)) %>%
+    group_by(agent_code) %>%
+    summarise(avg_time_by_week = mean(time_by_week),
+              avg_submit_by_week = mean(submit_by_week))
+
+rm(list = c("summary_by_week","rcvd_day_of_week"))
+```
+
+## EDA on time, submit by day of week and by week
+
+```{r eda time and submit, echo = FALSE}
+time_day_of_week %>%
+    gather(day_of_week, time, Fri_time:Wed_time) %>%
+    filter(time > 0) %>%
+    mutate(day_of_week_f = factor(day_of_week, levels = 
+            c("Mon_time", "Tue_time", "Wed_time", "Thu_time", "Fri_time", "Sat_time"))) %>%
+    ggplot(aes(x = time, color = day_of_week_f)) +
+    geom_freqpoly(binwidth = 1) +
+    ggtitle(label = "Number of agent submit break by no of time submit, color by day of week") + 
+    scale_x_continuous(breaks = seq(1, 10, 1), labels = seq(1, 10, 1), limits = c(1, 20)) +
+    labs(x = "Time submit", y = "No of agent")
+    ggsave(filename = "eda_1.jpeg", path = "./reports")
+    
+avg_submit_day_of_week %>%
+    gather(day_of_week, submit, Fri_submit:Wed_submit) %>%
+    filter(submit > 0) %>%
+    mutate(day_of_week_f = factor(day_of_week, levels = 
+            c("Mon_submit", "Tue_submit", "Wed_submit", "Thu_submit", "Fri_submit", "Sat_submit"))) %>%
+    ggplot(aes(x = submit, fill = day_of_week_f)) +
+    geom_histogram() +
+    facet_grid(. ~ day_of_week_f) +
+    ggtitle(label = "Nubmer of agent submit break by number app submit, color by day of week") + 
+    labs(x = "Amount of app submitted", y = "No of agent")
+    ggsave(file = "eda_2.jpeg", path = "./reports")
+```
+
+## product, bundle preference
+
+```{r product & bundle, echo = FALSE}
+prod_bundle_per <- oss_rcvd %>%
+    dplyr::select(-date) %>%
+    group_by(agent_code) %>%
+    summarise(tt_cc = sum(product == "CC"),
+              tt_pl = sum(product == "REV"),
+              tt_submit = n(),
+              tt_bundle = sum(bundle == "Y"),
+              per_cc = tt_cc/n(),
+              per_bundle = tt_bundle/n())
+```
+
+
+## EDA on Contribution by Products / Bundle
+```{r eda product and bundle, echo = FALSE}
+prod_bundle_per %>%
+    filter(tt_cc > 0, tt_pl > 0) %>%
+    ggplot(aes(x = per_cc)) +
+    geom_histogram(fill = I("blue")) +
+    ggtitle("Number of agent by Percent submit Credit Card / Total") +
+    ggsave(file = "eda_3.jpeg", path = "./reports")
+
+prod_bundle_per %>%
+    filter(tt_cc > 0, tt_pl > 0) %>%
+    ggplot(aes(x = per_bundle)) +
+    geom_histogram(fill = I("green")) +
+    ggtitle("Number of agent by Percent submit Bundle / Total") +
+    ggsave(file = "eda_4.jpeg", path = "./reports")
+
+```
+
+## combine all featues
+```{r combine features, echo = FALSE}
+d <- avg_submit_day_of_week %>%
+    left_join(time_day_of_week) %>%
+    left_join(recency) %>%
+    left_join(rcvd_by_week) %>%
+    left_join(prod_bundle_per)
+
+df <- as.data.frame(d)
+df$agent_code <- as.character(df$agent_code)
+rm(list = c("d","avg_submit_day_of_week", "prod_bundle_per", "rcvd_by_week", "recency", "time_day_of_week"))
+```
+
+# Clustering I
+## Hierarchical
+```{r hierarchical, echo = FALSE}
+# normalization
+df <- df[!is.na(df$agent_code), ]
+rownames(df) <- df$agent_code
+df$agent_code <- NULL
+df_norm <- as.data.frame(scale(df))
+
+# distance calculation
+dist <- dist(df_norm, method = "euclidean")
+
+# hierarchical clustering
+clust <- hclust(dist, method = "ward.D")
+
+# create clustering group by cutting tree
+# repeating choose cluster group 3, 4, 5
+plot(clust)
+rect.hclust(clust, k = 5, border = 'red')
+# Chooseing 5 group
+clust_group <- cutree(clust, k = 5)
+table(clust_group)
+
+# map back data and cluster for recheck clustering efficiency
+rcvd_clust <- cbind(df, clust_group)
+```
+
+## EDA clustering efficiency
+```{r cluster efficiency, echo = FALSE}
+clust_sum <- sapply(split(rcvd_clust, rcvd_clust$clust_group), colMeans)
+View(clust_sum)
+
+rcvd_clust %>%
+    ggplot(aes(y = avg_submit_by_week, x = diff_last, 
+               color = as.factor(clust_group))) +
+    geom_jitter(aes(shape = as.factor(clust_group), 
+                    alpha = ifelse(clust_group == '1', T, F)),
+                size = 3) +
+    scale_alpha_discrete(range = c(0.3, 1), guide = FALSE) +
+    scale_y_log10() + 
+    ggtitle(label = 'Type 1 - Little, Dormant', subtitle = 'Stop submitting for times, little submit amount')
+# group '1' dormant, little
+
+rcvd_clust %>%
+    ggplot(aes(y = avg_submit_by_week, x = diff_last, 
+               color = as.factor(clust_group))) +
+    geom_jitter(aes(shape = as.factor(clust_group), 
+                    alpha = ifelse(clust_group == '2', T, F)),
+                size = 3) +
+    scale_alpha_discrete(range = c(0.3, 1), guide = FALSE) +
+    scale_y_log10() + 
+    ggtitle(label = 'Type 2 - Moderate, Continue', subtitle = 'Continuously submit, moderate submit amount')
+# group '2' continuously, moderate
+
+rcvd_clust %>%
+    ggplot(aes(y = avg_submit_by_week, x = diff_last, 
+               color = as.factor(clust_group))) +
+    geom_jitter(aes(shape = as.factor(clust_group), 
+                    alpha = ifelse(clust_group == '3', T, F)),
+                size = 3) +
+    scale_alpha_discrete(range = c(0.3, 1), guide = FALSE) +
+    scale_y_log10() + 
+    ggtitle(label = 'Type 3 - New Active', subtitle = 'Continuously submit, little submit amount')
+# group '3' continuouly, little
+
+rcvd_clust %>%
+    ggplot(aes(y = avg_submit_by_week, x = per_bundle, 
+               color = as.factor(clust_group))) +
+    geom_jitter(aes(shape = as.factor(clust_group), 
+                    alpha = ifelse(clust_group == '4', T, F)),
+                size = 3) +
+    scale_alpha_discrete(range = c(0.3, 1), guide = FALSE) +
+    scale_y_log10() +
+    ggtitle(label = 'Type 4 - Rarely bundle', subtitle = 'Rarely bundle submit, little submit amount')
+# group '4' rarely submit, little amount
+
+rcvd_clust %>%
+    ggplot(aes(y = avg_submit_by_week, x = diff_last, 
+               color = as.factor(clust_group))) +
+    geom_jitter(aes(shape = as.factor(clust_group), 
+                    alpha = ifelse(clust_group == '5', T, F)),
+                size = 3) +
+    scale_alpha_discrete(range = c(0.3, 1), guide = FALSE) +
+    scale_y_log10() + 
+    ggtitle(label = 'Type 5 - High, Switching', subtitle = 'Mix contiunue & dormant, high submit amount')
+# group '5' High, switching
+
+```
+
+## Mapping agent cluster with advisor performance group
+```{r mapping cluster with advisor, echo = FALSE}
+sales_clust <- data.frame("agent_code" = names(clust_group),
+                          "clust" = clust_group)
+row.names(sales_clust) <- NULL
+sales_clust_advisor_group <- merge(sales, sales_clust, by = "agent_code", 
+                                   all.x = TRUE)
+sales_clust_advisor_group <- merge(sales_clust_advisor_group, advisor_group, 
+                                   by = "amsup", all.x = TRUE)
+# check count by group
+table(sales_clust$clust)
+table(sales_clust_advisor_group$clust)
+```
+
+# Analysis I
+## Composition of sales type (cluster) for high performance advisor
+
+```{r sales type by advisor, echo = FALSE}
+s <- split(sales_clust_advisor_group, sales_clust_advisor_group$group)
+l <- lapply(s, FUN = function(x) {table(x[['clust']])})
+comp <- do.call(rbind, l)
+
+# percen composition of each sales type by advisor group
+prop.table(comp, 1)*100
+mosaicplot(comp, shade = TRUE, las = 2, main = "Sales type by advisor group")
+```
+
+As mosaic plot shown the different contribution sales type in each advisor group
+A+ .. B : Have 'type 5 - high , switching' more than other group.
+A+ : Have 'type 2 - moderate, continue'.
+Pro : Mostly contributed by 'type 3 - New active' since mostly is the new sales, mostly bundle
+DM : Interesting contributed most the 'type 1 - little, dormant'
+
+# Clustering II
+## K-Means clustering
+```{r kmean, echo = FALSE}
+# Create distance matrix
+# normalization
+rownames(df) <- df$agent_code
+df$agent_code <- NULL
+df_norm <- as.data.frame(scale(df))
+
+# distance calculation
+dist <- dist(df_norm, method = "euclidean")
+
+# test different no of center
+c_test <- list()
+for (c in seq(1, 10)) {
+    kmc <- kmeans(dist, centers = c, iter.max = 1000)
+    c_test <- rbind(c_test, 
+                    c('center' = c, 'totss' = kmc$totss, 
+                      'tot.withinss' = kmc$tot.withinss, 
+                      'betweenss' = kmc$betweenss))
+    c_test <- as.data.frame(c_test)
+}
+# Elbow method to select best cluster
+# according to the sharp edge of decreasing total withiness sum square
+plot(x = c_test$center, y = c_test$tot.withinss, type = 'b', 
+     xaxt = 'n',  # suppress x-axis
+     main = "Elbow plot of total withiness sum square", 
+     xlab = "no of center", ylab = 'total withiness sum square')
+axis(side = 1, at = seq(1, 10))  # define x-axis
+abline(v = 4, col = "red", lty = 2)
+
+# create cluster
+kmc <- kmeans(dist, centers = 4, iter.max = 1000)
+k_clust <- kmc$cluster
+```
+
+## EDA clustering efficiency

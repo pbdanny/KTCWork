@@ -1,0 +1,154 @@
+---
+title: "Dimansionality Reduction with PCA & SVD"
+author: "Thanakrit Danny"
+date: "1/12/2018"
+output: html_document
+---
+
+```{r load_project, echo = FALSE, message = FALSE}
+
+rm(list = ls()) # refresh workspace
+library(ProjectTemplate); load.project() # load all cached file
+# move agent_code to rownames
+rownames(df) <- df$agent_code
+df$agent_code <- NULL
+```             
+
+# PCA
+## Main idea of PCA
+If X is data matrix, there is way to transform X in to some matrix (or basis/ or axis) that could preserved its varience.
+
+Then the some matrix = W "loading matrix"
+And the transformed matrix of X on W call matrix T "score matrix"
+T = XW
+The methods to find W "loading matrix" could used Eigenvalue of covarience matrix
+
+### Varience-Covarience matrix - step by step ; function *cov*
+```{r var-covar matrix, echo = FALSE, message = FALSE}
+# create devivation score matrix
+# sample statistic use n - 1 in calculation 
+n <- nrow(df)
+sample_n <- n - 1
+
+# square matrix of 1 with dimension = nrow of df
+isqrt <- matrix(rep(1, n*n), ncol = n, nrow = n)
+dev_score <- as.matrix(df - (isqrt %*% as.matrix(df/sample_n)))
+
+# varience - covarience matrix
+var_covar <- (t(dev_score) %*% dev_score) / sample_n
+
+# or use the command cov(df) which yield almost identical result
+var_covar <- cov(df)
+```
+
+The **R** command *cor* produce = var-covariance matrix of *normalized* data; with covarience of each pairs between [-1, 1] = *correlation*
+```{r var-cov matrix and corr matrix, echo = TRUE, eval = FALSE}
+# covariance matrix use the normalized data for dav_score calculation
+dev_score_norm <- as.matrix(scale(df) - (isqrt %*% as.matrix(scale(df)/sample_n)))
+
+# var-cov of normalized data
+var_covar_norm <- (t(dev_score_norm) %*% dev_score_norm) / sample_n
+print(var_covar_norm)
+
+# same result as
+cor(df)
+```
+
+### Analysis & visualization
+
+Plot & analyzed with package *GGally* **super slow**
+```{r visualize GGally, echo = TRUE, eval = FALSE}
+# GGally 
+GGally::ggpairs(df)
+```
+
+Use *correlation matrix* inplace of var-covar matrix.
+Plot with package *corrplot*
+```{r visualize corrplot, echo = FALSE, eval = TRUE}
+# corrplot work with normalizized var-covar matrix
+dev_score_norm <- as.matrix(scale(df) - (isqrt %*% as.matrix(scale(df)/sample_n)))
+var_covar_norm <- (t(dev_score_norm) %*% dev_score_norm) / sample_n
+
+# plot wth library corrplot
+corrplot::corrplot(var_covar_norm)
+```
+
+### PCA with W "loading matrix" from Eigenvalue-Eigenvector of var-cov matrix / correlation matrix
+
+The property of W "loading matrix" is its column ordered by eigenvalue order, magnitude of data covarience. Or the by the principal value.
+
+Then the dot product of data matrix X with truncated matrix of W with first column r 
+Tr = XWr will have nxr column, Tr is the X represented in basis W
+
+Since the unit of each features different scale, use correlation matrix ;which alrealy standardized data, to find PCA 
+```{r loading, score from igen, echo = FALSE, eval = TRUE}
+
+cor_mat <- cor(df)
+# remove na from matrix
+cor_mat <- cor_mat[c(-15,-16), c(-15,-16)]
+
+# Eigen value
+eigen_value <- eigen(cor_mat)$values
+# Eigen vector = 'loading' 
+eigen_vec <- eigen(cor_mat)$vectors
+
+# plot eigen value,check if ordered 
+plot(eigen_value, type = 'b', main = "Eigen value plot")
+text(seq_along(eigen_value), eigen_value, 
+     formatC(eigen_value, digits = 2), pos = 4, cex = 0.7)
+
+# % Explain of each principal component (PC), cumulative sum
+print(cumsum(eigen_value)/sum(eigen_value) * 100, digits = 2)
+
+# create reduce score matrix to top 2 PCA
+df_no_calNA <- df[ ,-c(15,16)]
+score <- as.matrix(df_no_calNA) %*% eigen_vec[, 1:2]
+```
+
+In **R** there is command *prcom*, with parameter *scale = TRUE* to scale data
+
+```{r prcom, echo = FALSE}
+# remove column with NA : diff_lag1, week_lag1
+# Calculate pca
+pca <- prcomp(df[,-c(15,16)], scale = TRUE)
+
+# The varience explained = std deviation ^ 2 ~ eigen value
+pca$sdev^2
+eigen_value
+
+# the loading matrix = 'rotation' = eigen vector
+head(pca$rotation)
+head(eigen_vec)
+```
+
+Summary of *PCA* properties with **summary**
+Visualized varience explained with **plot**
+Visualize each parameters correlation with PCA with **biplot**
+```{r viz pca, echo = FALSE}
+summary(pca)
+plot(pca, type = "l", main = "%Varience explained by PCAs")
+text(seq_along(pca$sdev), pca$sdev^2, 
+     sprintf("%.0f%%", pca$sdev^2/sum(pca$sdev^2)*100), pos = 4, cex = 0.7)
+
+# try hierarchical cluster 
+clust_group <- cutree(hclust(dist(scale(df), method = "euclidean"), 
+                             method = "ward.D") , k = 5)
+
+# biplot not so beautiful
+biplot(pca, scale = 0)
+
+# ggbiplot
+library(ggbiplot)
+g <- ggbiplot(pca, obs.scale = 1, var.scale = 1, group = as.factor(clust_group),
+              ellipse = TRUE, circle = TRUE)
+g <- g + scale_color_discrete(name = '')
+g <- g + coord_cartesian(xlim = c(-20, 5), ylim = c(-10, 10))
+g <- g + theme(legend.direction = 'horizontal', 
+               legend.position = 'top')
+g
+```
+
+From *biplot* 
+cluster 1 : highly correlated with amount of submission in each week.
+cluster 2 : highly correlated with frequency of submission in each week.
+There are cluster overlapping if we use only **pc1** and **pc2** in clustering. 

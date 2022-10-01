@@ -1,0 +1,375 @@
+---
+output: 
+  html_document:
+    keep_md: true
+---
+
+# OSS RL Aug-Sep 2017 analysis on D36
+
+## Run statistical test on *Decline* for confirmation the increased of *D36*
+
+```{r adjust_directory_if_needed, include=FALSE}
+# Initialise Project
+# Uncomment lines below if rmd file is placed in a subdirectory
+# library(knitr)
+# opts_knit$set(root.dir = normalizePath('../')) 
+```
+
+```{r load_project, include=FALSE}
+# 1. Set options in config/global.dcf
+# 2. Load packages listed in config/global.dcf
+# 3. Import functions and coe in lib directory
+# 4. Load data in data directory
+# 5. Run data manipulations in munge directory 
+
+rm(list = ls()) # optionally refresh workspace
+library(ProjectTemplate); load.project()
+rl_os <- subset(rl_os, month %in% c('y201708', 'y201709'))
+rm(thaiMaps); detach("package:sp", unload=TRUE)
+```
+
+Test of independent (difference) : result & month
+```{r chiq_test_independent_result_month, echo=FALSE}
+group <- 'month'
+attrib <- 'result'
+t <- table(rl_os[[group]], rl_os[[attrib]])
+cat(paste0('Table of ', attrib, ' by ', group))
+print(t)
+writeLines('')
+cat(paste0('Percent contribution of ', attrib, ' by ', group))
+prop.table(t, 1)*100
+chisq.test(t)
+i <- chisq.test(t)
+i_p <- i$p.value
+if (i_p <= 0.05) {
+    cat(paste0(group,' and ',attrib, ' are dependent'))
+} else {
+    cat(paste0(group,' and ',attrib, ' are independent'))
+}
+# mosaicplot(t)
+# assocplot(t)
+rm(list = c('group', 'attrib', 't', 'i', 'i_p'))
+```
+
+Test of each result proportion by month
+```{r prop_test_each_result_month, echo=FALSE}
+all_result <- unique(rl_os$result)
+for (i in seq_along(all_result)) {
+    t <- table(rl_os$month, ifelse(rl_os$result == all_result[i], 
+                                   all_result[i], paste0('Not ', all_result[i])))
+        cat(paste0("Contingency Table of ", all_result[i]))
+        print(t)
+        cat("\n% Proportion")
+        print(prop.table(t, 1)*100)
+        print(prop.test(t))
+}
+rm(list = c('i', 't', 'all_result'))
+```
+
+From proportion test (z-test) of each *result*, the *D* effect the % approval rate most. Then do more test on each *D*
+
+Number of top 5 *D*
+```{r top5_d, echo=FALSE}
+top5 <- rl_os %>%
+        filter(result == 'D') %>%
+        group_by(month, result_description) %>%
+        summarise(n = n()) %>%
+        spread(month, n) %>%
+        top_n(5)
+print(top5)
+```
+
+% Proportion of top 5 *D*
+```{r per_top5_d, echo=FALSE}
+rl_os %>%
+    filter(result == 'D') %>%
+    group_by(month, result_description) %>%
+    summarise(n = n()) %>%
+    mutate(per_finl = prop.table(n)*100) %>%
+    select(month, result_description, per_finl) %>%
+    spread(key = month, value = per_finl) %>%
+    top_n(5)
+```
+
+Proportion test top 5 *D* by each *result description*
+```{r test_top5_result_desc, echo=FALSE0}
+top5_desc <- top5$result_description
+d <- rl_os %>% filter(result == 'D')
+for (i in seq_along(top5_desc)) {
+    t <- table(d$month, ifelse(d$result_description == top5_desc[i], 
+                                   top5_desc[i], paste0('Not ', top5_desc[i])))
+        cat(paste0("Contingency Table of ", top5_desc[i]))
+        print(t)
+        cat("\n% Proportion")
+        print(prop.table(t, 1)*100)
+        print(prop.test(t))
+}
+rm(list = c("top5_desc", "top5", "d", "t", "i"))
+```
+
+From statistic test there are 3 reasons that statistically significant
+* D09 ประมาณการรายได้ไม่เพียงพอต่อการชำระหนี้, 201709 < 201708
+* D30 ภาระหนี้ใน NCB สูง ออกจดหมายแจ้งลูกค้า, 201709 > 201708
+* D36 สินเชื่อบุคคลเกินเกณฑ์ BOT ออกจดหมาย NCB, 201709 > 201708
+
+**EDA on D09**
+```{r EDA_D09, echo=FALSE}
+rl_os %>%
+    ggplot(aes(x = monthly_salary, fill = factor(month))) +
+    geom_histogram(position = 'identity', alpha = 0.5,
+        breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000)) +
+    scale_x_continuous(breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000),
+                  labels = c('10k', '12k', '15k', '20k', '30k', '40k', '50k')) +
+    ggtitle(label = "Histogram plot of finalized - income by month")
+
+rl_os %>%
+    ggplot(aes(x = monthly_salary, color = factor(month))) +
+    geom_density() +
+    scale_x_log10(limits = c(5000, 200000),
+                  breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000),
+                  labels = c('10k', '12k', '15k', '20k', '30k', '40k', '50k')) +
+    ggtitle(label = "Density plot of finalized - income by month")
+
+rl_os %>%
+    filter(result_description == "D09") %>%
+    ggplot(aes(x = monthly_salary, fill = factor(month))) +
+    geom_histogram(position = 'identity', alpha = 0.5,
+        breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000)) +
+    scale_x_continuous(breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000),
+                  labels = c('10k', '12k', '15k', '20k', '30k', '40k', '50k')) +
+    ggtitle(label = "Histogram plot of D09 - income by month")
+
+rl_os %>%
+    filter(result_description == "D09") %>%
+    ggplot(aes(x = monthly_salary, color = factor(month))) +
+    geom_density() +
+    scale_x_log10(limits = c(5000, 200000),
+                  breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000),
+                  labels = c('10k', '12k', '15k', '20k', '30k', '40k', '50k')) +
+    ggtitle(label = "Density plot of D09 - income by month")
+
+```
+
+All finalized app for income range 10-12k, 12-15k, 15-20k, 20-30k decreased
+while 30-40k, 40-50k maintain.
+
+As per density plot, the D09 at income range 15-20k, the spike on 201709 flatterned down compare to 201708. That's the reason of decreasing *D09*
+
+**EDA on D30**
+```{r EDA_D30, echo=FALSE}
+
+rl_os %>%
+    filter(result_description == "D30") %>%
+    ggplot(aes(x = monthly_salary, fill = factor(month))) +
+    geom_histogram(position = 'identity', alpha = 0.5,
+        breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000)) +
+    scale_x_continuous(breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000),
+                  labels = c('10k', '12k', '15k', '20k', '30k', '40k', '50k')) +
+    ggtitle(label = "Histogram plot of D30 - income by month")
+
+rl_os %>%
+    filter(result_description == "D30") %>%
+    ggplot(aes(x = monthly_salary, color = factor(month))) +
+    geom_density() +
+    scale_x_log10(limits = c(5000, 200000),
+                  breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000),
+                  labels = c('10k', '12k', '15k', '20k', '30k', '40k', '50k')) +
+    ggtitle(label = "Density plot of D30 - income by month")
+
+```
+
+**EDA on D36**
+```{r EDA_D36, echo=FALSE}
+
+rl_os %>%
+    filter(result_description == "D36") %>%
+    ggplot(aes(x = monthly_salary, fill = factor(month))) +
+    geom_histogram(position = 'identity', alpha = 0.5,
+        breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000)) +
+    scale_x_continuous(breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000),
+                  labels = c('10k', '12k', '15k', '20k', '30k', '40k', '50k')) +
+    ggtitle(label = "Histogram plot of D36 - income by month")
+
+rl_os %>%
+    filter(result_description == "D36") %>%
+    ggplot(aes(x = monthly_salary, color = factor(month))) +
+    geom_density() +
+    scale_x_log10(limits = c(5000, 200000),
+                  breaks = c(10000, 12000, 15000, 20000, 30000, 40000, 50000),
+                  labels = c('10k', '12k', '15k', '20k', '30k', '40k', '50k')) +
+    ggtitle(label = "Density plot of D36 - income by month")
+
+```
+
+For *D36* have high spike, knock down, on income ~16k and 22k.
+
+# Predictive modle on D36, use data from 201709 onwards
+Spliting data -> train (70%), test(30%)
+Split with respect to proportion of d36_flag 
+```{r D36_split_data, echo=FALSE}
+df <- rl_os %>%
+    filter(substr(month, 2, 7) >= 201709) %>%
+    mutate(d36_flag = ifelse(result_description == "D36", TRUE, FALSE))
+
+library(caTools)
+set.seed(59)
+split_idx <- sample.split(df$d36_flag, SplitRatio = 0.7)
+train <- df[split_idx,]
+test <- df[!split_idx,]
+
+detach(package:caTools)
+rm(split_idx)
+```
+
+## Train data base line 
+Use naive guess, predict all according to the most proportion in train data.
+```{r baseline_naive_guess, echo=FALSE}
+cat("Proportion of d36_flag in train data")
+prop.table(table(train$d36_flag))
+
+pred <- rep(FALSE, dim(test)[1])
+writeLines("\nPrediction (all FALSE) - test data")
+prop.table(table(test$d36_flag, pred))
+```
+
+If predict all as *FALSE* , the **accuracy = 0.96761** as base line for new model.
+
+## Logit Model
+```{r model_logit_threshold, echo=FALSE}
+logit_1 <- glm(d36_flag ~ monthly_salary, 
+               data = train, family = 'binomial')
+logit_2 <- update(logit_1, . ~ . + age)
+logit_3 <- update(logit_2, . ~ . + monthly_salary:age)
+# the logit_3 experience overfitted problems
+
+# logit_4 <- glm(d36_flag ~ log10(monthly_salary), 
+#               data = subset(train, monthly_salary > 0), 
+#               family = 'binomial')
+# logit_4 not significant
+
+# Choose model based on least AIC
+writeLines("\nAIC of 3 logit model")
+logit_1$aic; logit_2$aic; logit_3$aic
+
+# choose logit_3
+pred <- predict(logit_3, newdata = test, type = 'response')
+
+# choose plot ROCR Curve & calculate 'AUC' (Area Under Curved)
+library(ROCR)
+roc_pred <- prediction(pred, test$d36_flag)
+roc_perf <- performance(roc_pred, 'tpr', 'fpr')
+auc <- performance(roc_pred, 'auc')@y.values
+plot(roc_perf, colorize = TRUE,
+     print.cutoffs.at = seq(0, 0.2, 0.01),
+     main = paste0("ROC curve of logit model, AUC : ",auc))
+# clear out not used varible
+rm(list = c("logit_1", "logit_2", "logit_3", "roc_pred", "roc_perf"))
+```
+From *ROC* curved select threshold for P(Y = 1) at 0.035, for the effect of predicting **TRUE** is in high stake than the effect of predicting **FALSE**,keeping low *false positive rate* and maintain predictibility *true positive rate*
+```{r logit_accuracy, echo=FALSE}
+table(test$d36_flag, pred >= 0.035)
+```
+
+The logit model performance
+*accuracy* = (65+3937)/(65+119+3937+1560) = 0.7044534
+*sensitivity (true positive rate)* = 65/(119+65) = 0.3037
+*specificity (true negative rate)* = 3937/(3937+1560) = 0.7162
+
+anyway the accuracy is worst than the base-line. T.T
+
+## Decision Tree
+```{r decision_tree_1, echo=FALSE}
+library(rpart)
+library(rpart.plot)
+
+tree <- rpart(d36_flag ~ age + monthly_salary,
+              data = train,
+              method = 'class')
+plot(tree); text(tree)
+prp(tree)
+```
+From *plot(tree)* issue an error : *fit is not a tree, just a root*. Caused by the default control too strict then tree can not grow further.
+
+```{r decision_tree_2, echo=FALSE}
+library(rpart)
+library(rpart.plot)
+tree <- rpart(d36_flag ~ age + monthly_salary,
+              data = train,
+              method = 'class',
+              control=rpart.control(minsplit=200, minbucket=5, cp=0.0001))
+prp(tree)
+
+tree1 <- update(tree, . ~ . + region2)
+prp(tree1)
+
+tree1 <- update(tree, . ~ . + doc_waive)
+prp(tree1)
+
+tree1 <- update(tree, . ~ . + occupation_code)
+prp(tree1)
+
+tree1 <- update(tree, . ~ . -age -monthly_salary + region2 + doc_waive)
+prp(tree1)
+rm(tree1)
+```
+The independent varible that help grow tree is age + monthly_salary and help a bit with region2 / doc_waive
+
+```{r decision_tree_accuracy, echo=FALSE}
+pred <- predict(tree, newdata = test, type = 'class')
+table(test$d36_flag, pred)
+```
+True positive rate / sensitivity / recall = 0/184 = 0
+True negative rate / specificiy = 5496/(5496+1) = .999818
+The model could not decide positive d36 correctly, since decision tree use probability threshold = 0.5 for decision then adjust it with ROC
+
+```{r decision_tree_roc, echo = FALSE}
+library(ROCR)
+pred_prop <- predict(tree, newdata = test)
+head(pred_prop)
+roc_pred <- prediction(pred_prop[,2], test$d36_flag)
+roc_perf <- performance(roc_pred, "tpr", "fpr")
+auc <- performance(roc_pred, "auc")@y.values
+plot(roc_perf, colorize = TRUE, 
+     print.cutoffs.at = seq(0, 0.7, 0.01),
+     main = paste0("ROC curve of decision tree model, AUC : ",auc))
+
+rm(list = c('pred_prop', 'roc_pred', 'roc_perf', 'auc'))
+```
+Comparing the threshold P(Y=1) at 0.02 vs 0.04
+```{r decision_tree_new_threshold, echo = FALSE}
+pred_prop <- predict(tree, newdata = test)
+head(pred_prop)
+
+# Compare decision threshold 0.03, 0.05
+threshold <- 0.02
+writeLines(paste0("Threshold : ",threshold))
+pred_class <- ifelse(pred_prop[,2] >= threshold, TRUE, FALSE)
+table(test$d36_flag, pred_class)
+threshold <- 0.04
+writeLines(paste0("Threshold : ",threshold))
+pred_class <- ifelse(pred_prop[,2] >= threshold, TRUE, FALSE)
+table(test$d36_flag, pred_class)
+
+# clear varible
+rm(list = c("tree", "pred", "threshold"))
+```
+    Since the effect of correctly predict d36 higher than falsely predict then choose the threshold at *0.04*. 
+The tree model performance
+*accuracy* = (118+3561)/(118+66+3561+1846) = 0.6634
+*sensitivity (True positive rate)* = 118/(118+66) = 0.6413
+*specificity (Ture negative rate)* = 3651/(3651+1846) = 0.6641
+
+```{r random_forest, echo = FALSE}
+library(randomForest)
+set.seed(59)
+# random forest dependent var must be factor
+train$d36_flag_factor <- as.factor(train$d36_flag)
+forest <- randomForest(d36_flag_factor ~ age + monthly_salary,
+                       data = train, 
+                       strata = train$d36_flag_factor,
+                       nodesize = 5000)
+
+pred <- predict(forest, newdata = test)
+table(pred)
+```
+

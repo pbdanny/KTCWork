@@ -1,0 +1,164 @@
+# Initialise Project
+```{r adjust_directory_if_needed}
+# Uncomment lines below if rmd file is placed in a subdirectory
+# library(knitr)
+# opts_knit$set(root.dir = normalizePath('../')) 
+```
+
+```{r load_project, echo = FALSE, message = FALSE}
+# 1. Set options in config/global.dcf
+# 2. Load packages listed in config/global.dcf
+# 3. Import functions and coe in lib directory
+# 4. Load data in data directory
+# 5. Run data manipulations in munge directory 
+
+rm(list = ls()) # optionally refresh workspace
+library(ProjectTemplate); load.project()
+```             
+
+# Explore
+```{r explore, echo = FALSE}
+# total obs
+cat("Total observations : ", nrow(check_oss))
+
+# new to ktc
+new <- check_oss[is.na(check_oss$SM),]
+
+# check no duplicate new to ktc 
+cat("\nIs there unique name_surname in obs? :", 
+    nrow(new) == length(unique(new$name_surname)))
+
+# history with ktc
+ex_ktc <- check_oss[!is.na(check_oss$SM),]
+
+# check is there duplicate ex-ktc
+cat("\nIs there unique name_surname in ex ktc obs? :", 
+    nrow(ex_ktc) == length(unique(ex_ktc$name_surname)))
+
+# no of observation in ex-ktc
+cat("\nNo. of observation in ex-ktc : ", 
+    nrow(ex_ktc))
+
+# no of unique name ex-ktc
+cat("\nNo. of unique name_surname in ex-ktc : ", 
+    length(unique(ex_ktc$name_surname)))
+
+# % of ex-ktc to total
+cat("\nPortion of ex_ktc to all interested : ",
+    length(unique(ex_ktc$name_surname))/length(unique(check_oss$name_surname)))
+```
+
+## Explore on Ex-ktc features
+```{r ex ktc, echo = FALSE}
+# Show ex ktc data
+# View(ex_ktc[order(ex_ktc$name_surname, ex_ktc$OpenDate, decreasing = TRUE),])
+
+# some of them is TL
+# View(ex_ktc[ex_ktc$TL_Code == '-1',])
+
+# find latest status of agent
+# creat df of lastest update data
+name_last_date <- ex_ktc %>%
+    group_by(name_surname) %>%
+    summarise(last_date = max(OpenDate), time_regis = n())
+
+# left join ex_ktc with latest date and name for latest data
+ex_last_date <- ex_ktc %>%
+    inner_join(name_last_date, by = c("name_surname", "OpenDate" = "last_date"))
+
+# Number of lastest as TL
+cat("No of TL : ", 
+    sum(substr(ex_last_date$Agent_Code, 1, 1) == "4"))
+
+# proportion of agent status interested
+prop.table(table(ex_last_date$Status))
+
+# table of agent status & year interested
+table(format(ex_last_date$OpenDate, format = "%Y"), 
+      ex_last_date$Status)
+
+# check if the interested agent just open / re-activate in 2017
+ex_last_date %>%
+    filter(format(OpenDate, "%Y") == "2017") %>%
+    mutate(month_open = format(OpenDate, format = "%m")) %>%
+    group_by(month_open) %>%
+    summarise(n = n())
+```
+
+## Focus on Status C, W
+```{r status c w, echo = FALSE}
+# select only status c / w , sales only tl_code != -1 
+cw <- ex_last_date[ex_last_date$Status %in% c("C", "W") & ex_last_date$TL_Code != '-1',]
+
+# Load historical performance & filter only used data
+back_perf <- perf %>%
+    select(Agent_Code, Month, fin_cc, fin_pl) %>%
+    mutate(fin_cc = ifelse(is.na(fin_cc), 0, fin_cc)) %>%
+    mutate(fin_pl = ifelse(is.na(fin_pl), 0, fin_pl)) %>%
+    mutate(fin_tt = fin_cc + fin_pl)
+
+# join historical performance with sales data
+cw_perf <- cw %>%
+    left_join(back_perf)
+
+# create count of month from YYYYMM
+end_mth <- (2017*12)+12
+
+# create features
+cw_feature <- cw_perf %>%
+    mutate(year_num = as.integer(substr(Month, 1, 4))) %>%
+    mutate(month_num = as.integer(substr(Month, 5, 6))) %>%
+    mutate(diff_mth = end_mth - (year_num*12 + month_num)) %>%
+    mutate(active_mht = ifelse(fin_tt > 0, 1, 0)) %>%
+    mutate(diff_active_mth = ifelse(fin_tt > 0, diff_mth, NA)) %>%
+    group_by(Agent_Code) %>%
+    summarise(recent_mth = min(diff_active_mth, na.rm = TRUE), tt_active_mth = sum(active_mht), tt_fin = sum(fin_tt)) %>%
+    mutate(avg_fin_active = tt_fin / tt_active_mth)
+```
+
+## OSS sales status 'C', 'W'
+```{r oss c w, echo = FALSE}
+
+# Load historical performance & filter only used data
+back_perf <- perf %>%
+    select(Agent_Code, Month, fin_cc, fin_pl) %>%
+    mutate(fin_cc = ifelse(is.na(fin_cc), 0, fin_cc)) %>%
+    mutate(fin_pl = ifelse(is.na(fin_pl), 0, fin_pl)) %>%
+    mutate(fin_tt = fin_cc + fin_pl)
+
+# create count of month from YYYYMM
+end_mth <- (2017*12)+12
+
+# all sales C , W features
+all_cw_feature <- sales_cw %>%
+    left_join(back_perf, by = c("Agent_Code")) %>%
+    mutate(year_num = as.integer(substr(Month, 1, 4))) %>%
+    mutate(month_num = as.integer(substr(Month, 5, 6))) %>%
+    mutate(diff_mth = end_mth - (year_num*12 + month_num)) %>%
+    mutate(active_mht = ifelse(fin_tt > 0, 1, 0)) %>%
+    mutate(diff_active_mth = ifelse(fin_tt > 0, diff_mth, NA)) %>%
+    group_by(Agent_Code) %>%
+    summarise(recent_mth = min(diff_active_mth, na.rm = TRUE), tt_active_mth = sum(active_mht), tt_fin = sum(fin_tt)) %>%
+    mutate(avg_fin_active = tt_fin / tt_active_mth)
+
+# data with recent mth less than 24 mth
+recent_24mth <- all_cw_feature[all_cw_feature$recent_mth != Inf, ]
+
+recent_24mth$order <- ifelse(recent_24mth$recent_mth <= 14 & recent_24mth$tt_active_mth >= 6, "1st", 
+                             ifelse(recent_24mth$recent_mth <= 14 | recent_24mth$tt_active_mth >= 6, "2nd", "3rd"))
+
+write_csv(recent_24mth, path = file.path("output", "sales_cw_24mth"))
+
+# data with recent mth more than 24 mth
+recent_more24mth <- all_cw_feature[all_cw_feature$recent_mth == Inf, ]
+recent_more24mth$order <- "4th"
+
+write_csv(recent_more24mth, path = file.path("output", "sales_cw_more24mth"))
+
+# combine data for sent out
+sales_cw_order <- rbind(recent_24mth, recent_more24mth)
+write_csv(sales_cw_order, path = file.path("output", "sales_cw_order.csv"))
+
+```
+
+

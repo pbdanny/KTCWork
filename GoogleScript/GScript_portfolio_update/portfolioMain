@@ -1,0 +1,78 @@
+/*
+* Main function
+* 0. Clear all file in output folder
+* 1. Create list of AMSup with data, from RL Data
+* 2. Get advisor, mgr, email data
+* 3. Loop by AMSup
+*    - find mgrCode, mgrMail, advisorMail
+*    - Copy report tempate to target folder & Rename report data
+*    - Get cc, cc-TL, pl, pl-TL data
+*    - Clear old data
+*    - Paste data in copied template
+*    exclude - Sent mail : to advisor cc manager
+*/
+
+function main() {
+  
+  // 0. Clear all files in output folder
+  var folder = DriveApp.getFoldersByName("File Portfolio for Share").next();
+  var fileItl = folder.getFiles();
+
+  while (fileItl.hasNext()) {
+    var file = fileItl.next();
+    // Logger.log(file.getName());
+    file.setTrashed(trashed = true);
+  }
+
+  // 1. Create list of AMSup with data, from RL Data
+  var amsup = getUniqueAMSup();
+  
+  // 2. Get advisor, mgr, email data
+  var amsupData = readAdvisorData("Advisor Data - Test"); // Test data
+  
+  // 2.1 Load Report template file
+  var templateFile = DriveApp.getFileById("1xOCYo6dji9VZTtrkiaKOWHYxP23RZftAwPs_ZkLGHAY");
+  
+  // 3. Loop by AMSup
+  
+  for (i in amsup) {
+    
+    // store supcode for used in email
+    var supCode = amsup[i];
+    
+    // - find mgrCode, mgrMail, advisorMail
+    var mgrAndMail = getMgrAndMail(amsup[i], amsupData, 2, 21, 22);
+
+    // - Create file Name
+    var fileName = "Approved Income data" + "_" + mgrAndMail['mgrCode'] + "_" + amsup[i];
+    
+    // - Copy and Rename report data
+    var reportFileId = templateFile.makeCopy(fileName, folder).getId();
+    
+    // - Get cc, cc-TL, pl, pl-TL data
+    var data = readAllReportData(amsup[i]);
+    
+    // - Clear old data
+    var SS = SpreadsheetApp.openById(reportFileId);
+    clearSheetReport(SS);
+    
+    // - Paste Data in report
+    pasteSheetReport(data, SS);
+    
+//    if (mgrAndMail['advisorMail'] != "") { // if email data not blank
+//      
+//      // - Sent mail to advisor cc mgr + attached file
+//      var mailSubject = "Test - Update Finalized App by Income Range for Advisor : " + supCode;
+//      var mailMessage = mailSubject + "\n\n" + "ทดสอบส่งข้อมูล Update Finalized App แยก by Advisor พร้อมข้อมูล TL แยกตาม Advisor \n Link to File>> " 
+//      + "Linked to Google Sheet File : " + DriveApp.getFileById(reportFileId).getUrl();
+//    
+//      GmailApp.sendEmail(mgrAndMail['advisorMail'], 
+//                         mailSubject, 
+//                         mailMessage, 
+//                         {cc : mgrAndMail['advisorMail'],
+//                          name: 'Automatic Emailer : Income Range Update'});
+//    }
+    
+  }  // next advisor
+  
+} // end main

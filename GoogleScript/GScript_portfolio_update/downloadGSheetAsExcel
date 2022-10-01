@@ -1,0 +1,33 @@
+function mailAttachExcel() {
+  
+  var today = new Date();  // Create today varible.
+  
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();  // Get current Sheet Reference
+  var spreadsheetId = spreadsheet.getId();  // Get Sheet ID.
+  var file = DriveApp.getFileById(spreadsheetId);  // Get Sheet ID on Google Drive
+  
+  // Use script OAuth Token to get access download link as Excel files
+  
+  // Crate url link as download xlsx for converting Sheet to Excel
+  var url = "https://docs.google.com/spreadsheets/d/" + spreadsheetId +"/export?format=xlsx&id=" + spreadsheetId;  // Create url linked + excel dl
+  
+  // Script OAuth
+  var token = ScriptApp.getOAuthToken();  // Get Auth for this script app.
+  
+  // Get access to url link to download
+  var response = UrlFetchApp.fetch(url, { headers: {'Authorization': 'Bearer ' +  token}});  // Response on Script Auth.
+  
+  var fileName = spreadsheet.getName() + " " + today.toDateString() + '.xlsx' ;  // Get file name from response
+  
+  // Create blob for attached in mail
+  var blobs = [response.getBlob().setName(fileName)];  // Get blobs from Auth.
+  
+  var subject = "Daily App Rcvd Commitment of " + today.toDateString();  // Create subject.
+  var body = "Attached files ";  // Create mail body.
+  
+  GmailApp.sendEmail('thanakrit.b@ktc.co.th; chitsnuphongse.p@ktc.co.th; jirawat.p@ktc.co.th', subject, body,
+    {
+      attachments: blobs
+    }
+  );  // Sent mail with attache
+}
